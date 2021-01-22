@@ -130,7 +130,7 @@ func GenerateOperation(object *Object, endpoint *specs.Endpoint, options *transp
 	}
 
 	if output != nil {
-		if input.Property != nil {
+		if input != nil && input.Property != nil {
 			result.Responses = map[string]*Response{
 				"default": {
 					Content: map[string]MediaType{
