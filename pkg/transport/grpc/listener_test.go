@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/jexia/semaphore/pkg/discovery"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/jexia/semaphore/pkg/references"
 	"github.com/jexia/semaphore/pkg/specs"
 	"github.com/jexia/semaphore/pkg/specs/labels"
+	"github.com/jexia/semaphore/pkg/specs/template"
 	"github.com/jexia/semaphore/pkg/specs/types"
 	"github.com/jexia/semaphore/pkg/transport"
 )
@@ -86,7 +88,10 @@ func TestListener(t *testing.T) {
 		Options: specs.Options{},
 	}
 
-	dial, err := caller.Dial(service, nil, specs.Options{})
+	resolver := discovery.ResolverFunc(func() (string, bool) {
+		return service.Host, true
+	})
+	dial, err := caller.Dial(service, nil, specs.Options{}, resolver)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +105,7 @@ func TestListener(t *testing.T) {
 		Body:   bytes.NewBuffer([]byte{}),
 	}
 
-	err = dial.SendMsg(context.Background(), rw, rq, references.NewReferenceStore(0))
+	err = dial.SendMsg(context.Background(), rw, rq, references.NewStore(0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,8 +150,8 @@ func TestErrorHandlingListener(t *testing.T) {
 		},
 		"reference": {
 			caller: func(store references.Store) {
-				store.StoreValue("error", "status", int64(429))
-				store.StoreValue("error", "message", "reference value")
+				store.Store(template.ResourcePath(template.ErrorResource, "status"), &references.Reference{Value: int64(429)})
+				store.Store(template.ResourcePath(template.ErrorResource, "message"), &references.Reference{Value: "reference value"})
 			},
 			err: &specs.OnError{
 				Status: &specs.Property{
@@ -156,7 +161,7 @@ func TestErrorHandlingListener(t *testing.T) {
 							Type: types.Int64,
 						},
 						Reference: &specs.PropertyReference{
-							Resource: "error",
+							Resource: template.ErrorResource,
 							Path:     "status",
 						},
 					},
@@ -168,7 +173,7 @@ func TestErrorHandlingListener(t *testing.T) {
 							Type: types.String,
 						},
 						Reference: &specs.PropertyReference{
-							Resource: "error",
+							Resource: template.ErrorResource,
 							Path:     "message",
 						},
 					},
@@ -179,8 +184,8 @@ func TestErrorHandlingListener(t *testing.T) {
 		},
 		"input": {
 			caller: func(store references.Store) {
-				store.StoreValue("error", "status", int64(429))
-				store.StoreValue("input", "message", "reference value")
+				store.Store(template.ResourcePath(template.ErrorResource, "status"), &references.Reference{Value: int64(429)})
+				store.Store(template.ResourcePath(template.InputResource, "message"), &references.Reference{Value: "reference value"})
 			},
 			err: &specs.OnError{
 				Status: &specs.Property{
@@ -190,7 +195,7 @@ func TestErrorHandlingListener(t *testing.T) {
 							Type: types.Int64,
 						},
 						Reference: &specs.PropertyReference{
-							Resource: "error",
+							Resource: template.ErrorResource,
 							Path:     "status",
 						},
 					},
@@ -202,7 +207,7 @@ func TestErrorHandlingListener(t *testing.T) {
 							Type: types.String,
 						},
 						Reference: &specs.PropertyReference{
-							Resource: "input",
+							Resource: template.InputResource,
 							Path:     "message",
 						},
 					},
@@ -266,7 +271,8 @@ func TestErrorHandlingListener(t *testing.T) {
 				Options: specs.Options{},
 			}
 
-			dial, err := caller.Dial(service, nil, specs.Options{})
+			resolver := discovery.ResolverFunc(func() (string, bool) { return service.Host, true })
+			dial, err := caller.Dial(service, nil, specs.Options{}, resolver)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -280,7 +286,7 @@ func TestErrorHandlingListener(t *testing.T) {
 				Body:   bytes.NewBuffer([]byte{}),
 			}
 
-			err = dial.SendMsg(context.Background(), rw, rq, references.NewReferenceStore(0))
+			err = dial.SendMsg(context.Background(), rw, rq, references.NewStore(0))
 			if err != nil {
 				t.Fatalf("unrecoverable err returned '%s'", err)
 			}

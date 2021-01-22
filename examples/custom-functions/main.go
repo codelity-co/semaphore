@@ -56,8 +56,8 @@ func main() {
 		panic(err)
 	}
 
-	err = client.Serve()
-	if err != nil {
+	_, errs := client.Serve()
+	if err := <-errs; err != nil {
 		panic(err)
 	}
 }
@@ -90,7 +90,7 @@ func jwt(args ...*specs.Property) (*specs.Property, functions.Exec, error) {
 		value := input.Scalar.Default
 
 		if input.Reference != nil {
-			ref := store.Load(input.Reference.Resource, input.Reference.Path)
+			ref := store.Load(input.Reference.String())
 			if ref != nil {
 				value = ref.Value
 			}

@@ -13,19 +13,11 @@ type Schemas map[string]*Property
 
 // Get attempts to return the given key from the objects collection
 func (objects Schemas) Get(key string) *Property {
-	if objects == nil {
-		return nil
-	}
-
 	return objects[key]
 }
 
 // Append appends the given objects to the objects collection
 func (objects Schemas) Append(arg Schemas) {
-	if objects == nil {
-		return
-	}
-
 	for key, val := range arg {
 		objects[key] = val
 	}
@@ -82,6 +74,19 @@ func (property *Property) Clone() *Property {
 		return &Property{}
 	}
 
+	result := property.ShallowClone()
+	result.Template = property.Template.Clone()
+	return result
+}
+
+// ShallowClone clones the given property but ignores the defined template and/or
+// nested properties. This method is often used in cases where comparisons between
+// the flow and schema are made and any defined properties are seen as defined values.
+func (property *Property) ShallowClone() *Property {
+	if property == nil {
+		return &Property{}
+	}
+
 	return &Property{
 		Meta:        property.Meta,
 		Position:    property.Position,
@@ -89,12 +94,11 @@ func (property *Property) Clone() *Property {
 		Name:        property.Name,
 		Path:        property.Path,
 
-		Expr:    property.Expr,
-		Raw:     property.Raw,
-		Options: property.Options,
-		Label:   property.Label,
-
-		Template: property.Template.Clone(),
+		Expr:     property.Expr,
+		Raw:      property.Raw,
+		Options:  property.Options,
+		Label:    property.Label,
+		Template: property.Template.ShallowClone(),
 	}
 }
 

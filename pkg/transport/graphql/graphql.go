@@ -11,6 +11,7 @@ import (
 	"github.com/jexia/semaphore/pkg/broker"
 	"github.com/jexia/semaphore/pkg/broker/logger"
 	"github.com/jexia/semaphore/pkg/codec"
+	"github.com/jexia/semaphore/pkg/references"
 	"github.com/jexia/semaphore/pkg/specs"
 	"github.com/jexia/semaphore/pkg/specs/template"
 	"github.com/jexia/semaphore/pkg/transport"
@@ -53,6 +54,11 @@ type Listener struct {
 // Name returns the name of the given listener
 func (listener *Listener) Name() string {
 	return "graphql"
+}
+
+// Schema returns the schema of the given listner
+func (listener *Listener) Schema() graphql.Schema {
+	return listener.schema
 }
 
 // Serve opens the GraphQL listener and calls the given handler function on reach request
@@ -114,7 +120,7 @@ func (listener *Listener) Handle(ctx *broker.Context, endpoints []*transport.End
 				store := endpoint.Flow.NewStore()
 				ctx := context.Background()
 
-				store.StoreValues(template.InputResource, "", p.Args)
+				store.Store(template.ResourcePath(template.InputResource), &references.Reference{Value: p.Args})
 
 				err = endpoint.Flow.Do(ctx, store)
 				if err != nil {
@@ -132,7 +138,8 @@ func (listener *Listener) Handle(ctx *broker.Context, endpoints []*transport.End
 					return make(map[string]interface{}), nil
 				}
 
-				result, err := ResponseObject(endpoint.Response.Definition.Property, store)
+				tracker := references.NewTracker()
+				result, err := ResponseObject(endpoint.Response.Definition.Property, store, tracker)
 				if err != nil {
 					return nil, err
 				}

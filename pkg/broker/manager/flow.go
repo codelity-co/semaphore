@@ -1,10 +1,8 @@
 package manager
 
 import (
-	"errors"
-
+	"fmt"
 	"github.com/jexia/semaphore/pkg/broker"
-	"github.com/jexia/semaphore/pkg/broker/trace"
 	"github.com/jexia/semaphore/pkg/codec"
 	"github.com/jexia/semaphore/pkg/codec/metadata"
 	"github.com/jexia/semaphore/pkg/dependencies"
@@ -14,9 +12,6 @@ import (
 	"github.com/jexia/semaphore/pkg/specs"
 	"github.com/jexia/semaphore/pkg/specs/template"
 )
-
-// ErrNilFlowManager is thrown when a nil flow manager has been passed
-var ErrNilFlowManager = errors.New("nil flow manager")
 
 // NewFlow constructs a new flow manager from the given configurations
 func NewFlow(ctx *broker.Context, manager specs.FlowInterface, opts ...FlowOption) (*flow.Manager, error) {
@@ -105,21 +100,45 @@ func service(ctx *broker.Context, manager specs.FlowInterface, node *specs.Node,
 	}
 
 	if call.Service == "" {
-		return nil, trace.New(trace.WithMessage("invalid service name, no service name configured in '%s'", node.ID))
+		return nil, ErrNoServiceName{
+			Flow: manager.GetName(),
+			Node: node.ID,
+		}
 	}
 
 	service := options.services.Get(call.Service)
 	if service == nil {
-		return nil, trace.New(trace.WithMessage("the service for '%s' was not found in '%s'", call.Service, node.ID))
+		return nil, ErrNoService{
+			Flow:    manager.GetName(),
+			Node:    node.ID,
+			Service: call.Service,
+		}
 	}
 
 	constructor := options.Callers.Get(service.Transport)
 
 	if constructor == nil {
-		return nil, trace.New(trace.WithMessage("transport constructor not found '%s' for service '%s'", service.Transport, service.Name))
+		return nil, ErrNoTransport{
+			Transport: service.Transport,
+			Details: Details{
+				Service: call.Service,
+				Flow:    manager.GetName(),
+				Node:    node.ID,
+			},
+		}
 	}
 
-	dialer, err := constructor.Dial(service, options.Functions, service.Options)
+	client, ok := options.discoveries[service.Resolver]
+	if !ok {
+		return nil, fmt.Errorf("service discovery with name '%s' is not registered", service.Resolver)
+	}
+
+	resolver, err := client.Resolver(service.Host)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create service resolver: %w", err)
+	}
+
+	dialer, err := constructor.Dial(service, options.Functions, service.Options, resolver)
 	if err != nil {
 		return nil, err
 	}
@@ -142,12 +161,26 @@ func service(ctx *broker.Context, manager specs.FlowInterface, node *specs.Node,
 
 	reqcodec := options.Codec.Get(service.RequestCodec)
 	if reqcodec == nil {
-		return nil, trace.New(trace.WithMessage("request codec not found '%s'", service.RequestCodec))
+		return nil, ErrNoRequestCodec{
+			Codec: service.RequestCodec,
+			Details: Details{
+				Service: call.Service,
+				Flow:    manager.GetName(),
+				Node:    node.ID,
+			},
+		}
 	}
 
 	rescodec := options.Codec.Get(service.ResponseCodec)
 	if rescodec == nil {
-		return nil, trace.New(trace.WithMessage("response codec not found '%s'", service.ResponseCodec))
+		return nil, ErrNoResponseCodec{
+			Codec: service.RequestCodec,
+			Details: Details{
+				Service: call.Service,
+				Flow:    manager.GetName(),
+				Node:    node.ID,
+			},
+		}
 	}
 
 	unexpected, err := errorHandler(ctx, node, rescodec, node.OnError, options)

@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"github.com/jexia/semaphore/pkg/discovery"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/jexia/semaphore/pkg/codec/json"
 	"github.com/jexia/semaphore/pkg/codec/metadata"
 	"github.com/jexia/semaphore/pkg/references"
+	"github.com/jexia/semaphore/pkg/specs/template"
 	"github.com/jexia/semaphore/pkg/transport"
 )
 
@@ -57,7 +59,7 @@ func TestCaller(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	refs := references.NewReferenceStore(1)
+	refs := references.NewStore(1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		want := "/Path?query=value"
 		got := r.URL.String()
@@ -70,7 +72,8 @@ func TestCaller(t *testing.T) {
 	defer server.Close()
 
 	service := NewMockService(server.URL, "GET", "/Path?query=value")
-	caller, err := NewMockCaller().Dial(service, nil, nil)
+	resolver := discovery.ResolverFunc(func() (string, bool) { return service.Host, true })
+	caller, err := NewMockCaller().Dial(service, nil, nil, resolver)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +98,7 @@ func TestCaller(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ref := refs.Load("input", "message")
+	ref := refs.Load("input:message")
 	if ref == nil {
 		t.Fatal("input:message reference not set")
 	}
@@ -112,7 +115,8 @@ func TestCaller(t *testing.T) {
 
 func TestCallerUnknownMethod(t *testing.T) {
 	service := NewMockService("http://localhost", "GET", "/")
-	call, err := NewMockCaller().Dial(service, nil, nil)
+	resolver := discovery.ResolverFunc(func() (string, bool) { return service.Host, true })
+	call, err := NewMockCaller().Dial(service, nil, nil, resolver)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +278,8 @@ func TestCallerReferences(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			service := NewMockService("http://localhost", "GET", test.endpoint)
-			call, err := NewMockCaller().Dial(service, nil, nil)
+			resolver := discovery.ResolverFunc(func() (string, bool) { return service.Host, true })
+			call, err := NewMockCaller().Dial(service, nil, nil, resolver)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -344,7 +349,8 @@ func TestCallerReferencesLookup(t *testing.T) {
 			defer server.Close()
 
 			service := NewMockService(server.URL, "GET", test.endpoint)
-			caller, err := NewMockCaller().Dial(service, nil, nil)
+			resolver := discovery.ResolverFunc(func() (string, bool) { return service.Host, true })
+			caller, err := NewMockCaller().Dial(service, nil, nil, resolver)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -355,13 +361,13 @@ func TestCallerReferencesLookup(t *testing.T) {
 				t.Fatalf("unexpected references %+v", refs)
 			}
 
-			store := references.NewReferenceStore(1)
+			store := references.NewStore(1)
 			ctx := context.Background()
 			req := transport.Request{
 				Method: method,
 			}
 
-			store.StoreValue(test.resource, test.path, test.value)
+			store.Store(template.ResourcePath(test.resource, test.path), &references.Reference{Value: test.value})
 
 			rw := &MockResponseWriter{
 				header: metadata.MD{},

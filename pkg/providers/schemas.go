@@ -3,7 +3,6 @@ package providers
 import (
 	"github.com/jexia/semaphore/pkg/broker"
 	"github.com/jexia/semaphore/pkg/broker/logger"
-	"github.com/jexia/semaphore/pkg/broker/trace"
 	"github.com/jexia/semaphore/pkg/specs"
 	"go.uber.org/zap"
 )
@@ -53,7 +52,7 @@ func ResolveFlow(parent *broker.Context, services specs.ServiceList, schemas spe
 	}
 
 	if flow.GetOutput() != nil {
-		err = ResolveParameterMap(ctx, schemas, flow.GetOutput(), flow)
+		_, err = ResolveParameterMapSchema(ctx, schemas, flow.GetOutput())
 		if err != nil {
 			return err
 		}
@@ -105,7 +104,7 @@ func ResolveNode(ctx *broker.Context, services specs.ServiceList, schemas specs.
 // DefineCall defineds the types for the specs call
 func DefineCall(ctx *broker.Context, services specs.ServiceList, schemas specs.Schemas, node *specs.Node, call *specs.Call, flow specs.FlowInterface) (err error) {
 	if call.Request != nil {
-		err = ResolveParameterMap(ctx, schemas, call.Request, flow)
+		_, err = ResolveParameterMapSchema(ctx, schemas, call.Request)
 		if err != nil {
 			return err
 		}
@@ -161,6 +160,49 @@ func DefineCall(ctx *broker.Context, services specs.ServiceList, schemas specs.S
 	return nil
 }
 
+// ResolveParameterMapSchema ensures that the given parameter map schema is available
+func ResolveParameterMapSchema(ctx *broker.Context, schemas specs.Schemas, params *specs.ParameterMap) (_ *specs.Property, err error) {
+	if params == nil || params.Schema == "" {
+		return nil, nil
+	}
+
+	schema := schemas.Get(params.Schema)
+	if schema == nil {
+		return nil, ErrUndefinedObject{
+			Schema: params.Schema,
+		}
+	}
+
+	return schema, nil
+}
+
+// ResolveParameterMap ensures that all schema properties are defined inisde the given parameter map
+func ResolveParameterMap(ctx *broker.Context, schemas specs.Schemas, params *specs.ParameterMap, flow specs.FlowInterface) (err error) {
+	schema, err := ResolveParameterMapSchema(ctx, schemas, params)
+	if err != nil {
+		return err
+	}
+
+	err = ResolveProperty(params.Property, schema.Clone(), flow)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ResolveOnError ensures that all schema properties are defined inside the given on error object
+func ResolveOnError(ctx *broker.Context, schemas specs.Schemas, params *specs.OnError, flow specs.FlowInterface) (err error) {
+	if params.Response != nil {
+		err = ResolveParameterMap(ctx, schemas, params.Response, flow)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func resolveMessage(message, schema specs.Message, flow specs.FlowInterface) error {
 	for _, nested := range message {
 		if nested == nil {
@@ -169,7 +211,10 @@ func resolveMessage(message, schema specs.Message, flow specs.FlowInterface) err
 
 		object := schema[nested.Name]
 		if object == nil {
-			return trace.New(trace.WithMessage("undefined schema nested message property '%s' in flow '%s'", nested.Name, flow.GetName()))
+			return ErrUndefinedProperty{
+				Property: nested.Name,
+				Flow:     flow.GetName(),
+			}
 		}
 
 		if err := ResolveProperty(nested, object.Clone(), flow); err != nil {
@@ -182,7 +227,7 @@ func resolveMessage(message, schema specs.Message, flow specs.FlowInterface) err
 
 func resolveRepeated(repeated, schema specs.Repeated, flow specs.FlowInterface) error {
 	if len(repeated) != len(schema) {
-		return trace.New(trace.WithMessage("the length of repeated does not match the schema"))
+		return ErrLengthMismatch
 	}
 
 	// FIXME: flow and schema repeated could have different type orders.
@@ -270,39 +315,6 @@ func ResolveProperty(property, schema *specs.Property, flow specs.FlowInterface)
 		setRepeated(property.Repeated, schema.Repeated)
 
 		break
-	}
-
-	return nil
-}
-
-// ResolveParameterMap ensures that all schema properties are defined inisde the given parameter map
-func ResolveParameterMap(ctx *broker.Context, schemas specs.Schemas, params *specs.ParameterMap, flow specs.FlowInterface) (err error) {
-	if params == nil || params.Schema == "" {
-		return nil
-	}
-
-	schema := schemas.Get(params.Schema)
-	if schema == nil {
-		return ErrUndefinedObject{
-			Schema: params.Schema,
-		}
-	}
-
-	err = ResolveProperty(params.Property, schema.Clone(), flow)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// ResolveOnError ensures that all schema properties are defined inside the given on error object
-func ResolveOnError(ctx *broker.Context, schemas specs.Schemas, params *specs.OnError, flow specs.FlowInterface) (err error) {
-	if params.Response != nil {
-		err = ResolveParameterMap(ctx, schemas, params.Response, flow)
-		if err != nil {
-			return err
-		}
 	}
 
 	return nil
